@@ -26,7 +26,7 @@ def test_log():
         assert year in s
     assert "pulse" in s
     # NOW is the only accented log mark
-    assert re.search(r'class="[^"]*\bac\b[^"]*"[^>]*>NOW<', s)
+    assert re.search(r'<g class="[^"]*\bac\b[^"]*" data-text="NOW"', s)
 
 
 def test_cards_bars_proportional():

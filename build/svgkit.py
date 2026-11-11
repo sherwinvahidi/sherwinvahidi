@@ -1,14 +1,12 @@
 """Small helpers for building self-contained SVG sections.
 
-Fonts are instanced from the variable TTFs, subset to the glyphs a section uses,
-and embedded as base64 WOFF2, so every viewer sees the same typography.
+Fonts are instanced from the variable TTFs and every letter is drawn as a vector
+outline, so the SVGs need no fonts and render identically in every browser.
 """
-import base64
-import io
 from functools import lru_cache
 from pathlib import Path
 
-from fontTools import subset
+from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.ttLib import TTFont
 from fontTools.varLib import instancer
 from fontTools.ttLib.removeOverlaps import removeOverlaps
@@ -45,11 +43,23 @@ def _metrics(key: str):
     return f.getBestCmap(), f["hmtx"].metrics, f["head"].unitsPerEm
 
 
+FALLBACK = "display"
+
+
+def _glyph(font: str, ch: str):
+    """(font actually used, glyph name, advance in px-per-size-1). Falls back to the
+    display face for symbols the font lacks; raises KeyError if no font has it."""
+    for f in (font, FALLBACK):
+        cmap, hmtx, upem = _metrics(f)
+        name = cmap.get(ord(ch))
+        if name:
+            return f, name, hmtx[name][0] / upem
+    raise KeyError(f"no font has {ch!r} (U+{ord(ch):04X})")
+
+
 def text_width(s: str, font: str, size: float, tracking_em: float = 0) -> float:
     """Advance width of `s` in px (no kerning), plus letter-spacing after every glyph."""
-    cmap, hmtx, upem = _metrics(font)
-    units = sum(hmtx[cmap.get(ord(c), ".notdef")][0] for c in s)
-    return units / upem * size + tracking_em * size * len(s)
+    return sum(_glyph(font, c)[2] for c in s) * size + tracking_em * size * len(s)
 
 
 def assert_fits(s: str, font: str, size: float, max_w: float, tracking_em: float = 0) -> None:
@@ -57,42 +67,9 @@ def assert_fits(s: str, font: str, size: float, max_w: float, tracking_em: float
     assert w <= max_w, f"{s!r} is {w:.0f}px wide, limit {max_w:.0f}px"
 
 
-def font_css(used: dict) -> str:
-    """@font-face rules embedding each font subset to the characters in `used[key]`."""
-    rules = []
-    for key, chars in used.items():
-        if not chars:
-            continue
-        f = TTFont(io.BytesIO(_font_bytes(key)))
-        opts = subset.Options()
-        opts.flavor = "woff2"
-        opts.layout_features = ["kern", "liga"]
-        opts.name_IDs = [0, 1, 2, 13, 14]  # keep copyright + OFL license records
-        opts.notdef_outline = True
-        sub = subset.Subsetter(opts)
-        sub.populate(text="".join(sorted(set(chars))) + " ")
-        sub.subset(f)
-        buf = io.BytesIO()
-        f.flavor = "woff2"
-        f.save(buf)
-        b64 = base64.b64encode(buf.getvalue()).decode()
-        rules.append(f"@font-face{{font-family:{FONTS[key][2]};src:url(data:font/woff2;base64,{b64}) format('woff2')}}")
-    return "".join(rules)
-
-
-@lru_cache(maxsize=None)
-def _font_bytes(key: str) -> bytes:
-    buf = io.BytesIO()
-    _font(key).save(buf)
-    return buf.getvalue()
-
-
 def base_css() -> str:
-    d, m, s = (FONTS[k][2] for k in ("display", "mono", "serif"))
     return (
-        f".d{{font-family:{d};font-weight:800;fill:{FG}}}"
-        f".m{{font-family:{m};font-weight:500;fill:{MUTED}}}"
-        f".s{{font-family:{s};font-style:italic;fill:{FG}}}"
+        f".d{{fill:{FG}}}.m{{fill:{MUTED}}}.s{{fill:{FG}}}"
         f".fg{{fill:{FG}}}.ac{{fill:{ACCENT}}}"
         "@keyframes pulse{50%{opacity:.3}}"
         ".pulse{animation:pulse 2s ease-in-out infinite}"
@@ -110,12 +87,6 @@ def panel(x: float, y: float, w: float, h: float, notch: float = 18) -> str:
     return f'<path d="{d}" fill="none" stroke="{LINE}" stroke-width="1.5"/>'
 
 
-def text(x, y, s, cls, size, tracking_em=0, anchor="start", extra="") -> str:
-    ls = f' letter-spacing="{tracking_em * size:.2f}"' if tracking_em else ""
-    return (f'<text x="{x:g}" y="{y:g}" class="{cls}" font-size="{size:g}"{ls} '
-            f'text-anchor="{anchor}"{extra}>{esc(s)}</text>')
-
-
 def svg_doc(w: int, h: int, body: str, css: str, title: str = "") -> str:
     t = f"<title>{esc(title)}</title>" if title else ""
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
@@ -126,25 +97,46 @@ def svg_doc(w: int, h: int, body: str, css: str, title: str = "") -> str:
 CLASS = {"display": "d", "mono": "m", "serif": "s"}
 
 
+@lru_cache(maxsize=None)
+def _outline(font: str, glyph: str) -> str:
+    f = _font(font)
+    pen = SVGPathPen(f.getGlyphSet())
+    f.getGlyphSet()[glyph].draw(pen)
+    return pen.getCommands()
+
+
 class Canvas:
-    """Collects SVG parts and the characters each font must embed."""
+    """Collects SVG parts. Lettering is drawn as shared glyph outlines (<use>),
+    so the SVG needs no fonts: GitHub's CSP blocks embedded fonts in Safari."""
 
     def __init__(self):
         self.parts = []
-        self.used = {k: "" for k in FONTS}
-
-    def use(self, font: str, s: str) -> None:
-        self.used[font] += s
+        self.glyphs = {}  # (font, glyph name) -> element id
 
     def raw(self, s: str) -> None:
         self.parts.append(s)
 
+    def run(self, x, y, s, font, size, tracking=0, anchor="start", cls="", attrs="") -> str:
+        """A <g> drawing `s` with its baseline at y. Returns the markup (not appended)."""
+        w = text_width(s, font, size, tracking) - tracking * size
+        x0 = {"start": x, "middle": x - w / 2, "end": x - w}[anchor]
+        uses, cx = [], x0
+        for ch in s:
+            f, name, adv = _glyph(font, ch)
+            if _outline(f, name):
+                scale = size / _metrics(f)[2]
+                gid = self.glyphs.setdefault((f, name), f"{CLASS[f]}{len(self.glyphs)}")
+                uses.append(f'<use href="#{gid}" transform="matrix({scale:.5f} 0 0 {-scale:.5f} {cx:.2f} {y:.2f})"/>')
+            cx += adv * size + tracking * size
+        c = (CLASS[font] + " " + cls).strip()
+        return f'<g class="{c}" data-text="{esc(s)}"{attrs}>{"".join(uses)}</g>'
+
     def t(self, x, y, s, font, size, tracking=0, anchor="start", cls="", extra="", max_w=None):
         if max_w is not None:
             assert_fits(s, font, size, max_w, tracking)
-        self.use(font, s)
-        c = (CLASS[font] + " " + cls).strip()
-        self.raw(text(x, y, s, c, size, tracking, anchor, extra))
+        self.raw(self.run(x, y, s, font, size, tracking, anchor, cls, extra))
 
     def doc(self, w: int, h: int, css: str = "", title: str = "") -> str:
-        return svg_doc(w, h, "".join(self.parts), font_css(self.used) + base_css() + css, title)
+        defs = "".join(f'<path id="{gid}" d="{_outline(f, g)}"/>' for (f, g), gid in self.glyphs.items())
+        body = (f"<defs>{defs}</defs>" if defs else "") + "".join(self.parts)
+        return svg_doc(w, h, body, base_css() + css, title)

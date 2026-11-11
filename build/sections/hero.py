@@ -1,5 +1,5 @@
 import content
-from svgkit import ACCENT, FG, LINE, MUTED, Canvas, esc, text_width
+from svgkit import ACCENT, FG, LINE, Canvas, _metrics, assert_fits, text_width
 
 W, H = 1600, 800
 PAD = 48
@@ -32,10 +32,10 @@ def render() -> str:
     unit = content.TICKER + "      "
     uw = text_width(unit, "mono", 19, 0.1)
     dot, rest = unit[0], unit[1:]
-    c.use("mono", unit)
+    dw = text_width(dot, "mono", 19, 0.1)
     runs = "".join(
-        f'<text x="{536 + i * uw:.1f}" y="59" class="m fg" font-size="19" letter-spacing="1.9">'
-        f'<tspan class="ac pulse">{dot}</tspan>{esc(rest)}</text>' for i in range(4))
+        c.run(536 + i * uw, 59, dot, "mono", 19, 0.1, cls="ac pulse")
+        + c.run(536 + i * uw + dw, 59, rest, "mono", 19, 0.1, cls="fg") for i in range(4))
     c.raw(f'<g clip-path="url(#tk)"><g class="tick">{runs}</g></g>')
     c.raw(f'<line x1="0" y1="104" x2="1600" y2="104" stroke="{LINE}" stroke-width="1.5"/>')
 
@@ -44,12 +44,11 @@ def render() -> str:
     pre, post = content.OUTLINED_PREFIX, l2[len(content.OUTLINED_PREFIX):]
     max_name = W - PAD - 150  # keep clear of the vertical text
     c.t(PAD - 6, 310, l1, "display", NAME_SIZE, NAME_TRACK, max_w=max_name)
-    from svgkit import assert_fits
     assert_fits(l2, "display", NAME_SIZE, max_name, NAME_TRACK)
-    c.use("display", l2)
-    ls = NAME_TRACK * NAME_SIZE
-    c.raw(f'<text x="{PAD - 6}" y="460" class="d" font-size="{NAME_SIZE}" letter-spacing="{ls:.2f}">'
-          f'<tspan fill="none" stroke="{FG}" stroke-width="2.5">{pre}</tspan>{post}</text>')
+    sw = 2.5 * _metrics("display")[2] / NAME_SIZE  # stroke is in glyph units
+    c.t(PAD - 6, 460, pre, "display", NAME_SIZE, NAME_TRACK,
+        extra=f' style="fill:none" stroke="{FG}" stroke-width="{sw:.1f}"')
+    c.t(PAD - 6 + text_width(pre, "display", NAME_SIZE, NAME_TRACK), 460, post, "display", NAME_SIZE, NAME_TRACK)
 
     # scan line
     c.raw('<rect x="0" y="548" width="1600" height="3" fill="url(#scan)" filter="url(#glow)" opacity=".9"/>'

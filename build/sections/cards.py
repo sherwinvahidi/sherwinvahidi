@@ -1,4 +1,4 @@
-from svgkit import ACCENT, BAR_OFF, Canvas, esc, panel, text_width
+from svgkit import ACCENT, BAR_OFF, Canvas, _metrics, panel, text_width
 
 W, H = 600, 800
 X0 = 58
@@ -26,9 +26,9 @@ def wrap_title(title: str) -> list:
 def render(p: dict) -> str:
     c = Canvas()
     c.raw(panel(30, 30, W - 60, H - 60, notch=26))
-    c.use("display", p["n"])
-    c.raw(f'<text x="{X0 - 10}" y="300" class="d" font-size="300" letter-spacing="-21" '
-          f'fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.6" style="fill:none">{p["n"]}</text>')
+    sw = 1.6 * _metrics("display")[2] / 300  # stroke is in glyph units
+    c.t(X0 - 10, 300, p["n"], "display", 300, -0.07,
+        extra=f' style="fill:none" stroke="rgba(255,255,255,.45)" stroke-width="{sw:.1f}"')
     c.t(W - X0, 92, p["kicker"], "mono", 21, 0.08, anchor="end")
 
     lines = wrap_title(p["title"])

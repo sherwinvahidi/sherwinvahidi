@@ -1,6 +1,6 @@
 # Fonts
 
-The SVGs in `assets/` embed subsets of these fonts, and the resume PDF embeds Carlito. All are licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org). None declares a Reserved Font Name. The embedded subsets keep each font's copyright and license records.
+The lettering in `assets/` is drawn as vector outlines from these fonts (the SVGs contain no font files, so they render the same in every browser), and the resume PDF embeds Carlito. All are licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org). None declares a Reserved Font Name.
 
 | Font | Copyright | Source |
 |---|---|---|

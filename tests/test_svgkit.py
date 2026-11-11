@@ -28,10 +28,20 @@ def test_panel_has_notch():
     assert "M10,20 H102 L110,28 V70 H10 Z" in p
 
 
-def test_font_css_embeds_woff2():
-    css = svgkit.font_css({"display": "AB", "mono": "1", "serif": "x"})
-    assert css.count("@font-face") == 3
-    assert "data:font/woff2;base64," in css
+def test_run_draws_glyph_paths():
+    c = svgkit.Canvas()
+    g = c.run(10, 20, "AA", "display", 50)
+    assert g.count("<use ") == 2 and 'data-text="AA"' in g
+    doc = c.doc(100, 50)
+    assert doc.count("<path id=") == 1  # one shared outline for both A's
+
+
+@pytest.mark.parametrize("path", ASSETS, ids=lambda p: p.name)
+def test_svg_needs_no_fonts(path):
+    # GitHub serves SVGs with CSP default-src 'none'; Safari then blocks embedded
+    # fonts and falls back to a wider system font. All lettering must be outlines.
+    s = path.read_text()
+    assert "<text" not in s and "@font-face" not in s and "font-family" not in s
 
 
 def test_esc():
@@ -59,3 +69,20 @@ def test_svg_has_bg(path):
 @pytest.mark.parametrize("path", ASSETS, ids=lambda p: p.name)
 def test_svg_size(path):
     assert path.stat().st_size < 250_000
+
+
+def test_missing_glyph_falls_back_to_display():
+    # JetBrains Mono has no check mark; it must come from Inter Tight, not .notdef
+    c = svgkit.Canvas()
+    c.run(0, 0, "✓", "mono", 20)
+    assert c.glyphs and all(name != ".notdef" for _, name in c.glyphs)
+
+
+def test_unknown_char_raises():
+    with pytest.raises(KeyError):
+        svgkit.Canvas().run(0, 0, "☃", "mono", 20)  # snowman: in no font
+
+
+@pytest.mark.parametrize("path", ASSETS, ids=lambda p: p.name)
+def test_svg_has_no_notdef(path):
+    assert "notdef" not in path.read_text()

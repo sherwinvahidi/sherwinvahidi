@@ -1,5 +1,5 @@
 import content
-from svgkit import ACCENT, Canvas, assert_fits, panel, text
+from svgkit import ACCENT, Canvas, assert_fits, panel
 
 W, H = 1600, 860
 PAD = 48
@@ -40,8 +40,7 @@ def render() -> str:
             off = 26
         lab = label.upper()
         assert_fits(lab, "mono", ROW, colw - 180 - off, TRK)
-        c.use("mono", lab)
-        c.raw(text(x0 + off, yy, lab, "m", ROW, TRK))
+        c.t(x0 + off, yy, lab, "mono", ROW, TRK)
         c.t(x0 + colw, yy, value, "mono", ROW, TRK, anchor="end", cls="fg")
         _sep(c, x0, x0 + colw, yy + 28)
 
