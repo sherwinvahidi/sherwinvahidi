@@ -35,10 +35,12 @@ def test_readme_assets_exist_and_have_alt():
     assert len(imgs) == 9
     for tag in imgs:
         src = re.search(r'src="([^"]+)"', tag).group(1)
-        path, _, ver = src.partition("?v=")
-        assert (ROOT / path).exists(), src
-        # a content hash in the URL makes GitHub's image cache fetch new versions
-        assert ver == hashlib.sha256((ROOT / path).read_bytes()).hexdigest()[:10], src
+        assert "?" not in src, src  # raw.githubusercontent.com ignores query strings
+        assert (ROOT / src).exists(), src
+        # the content hash is in the filename, so a changed image gets a new URL
+        # and GitHub's image cache can never serve a stale copy
+        h = hashlib.sha256((ROOT / src).read_bytes()).hexdigest()[:10]
+        assert src.endswith(f".{h}.svg"), src
         assert re.search(r'alt="[^"]{8,}"', tag), tag
 
 

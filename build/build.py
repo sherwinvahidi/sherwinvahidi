@@ -1,4 +1,5 @@
 """Render every profile section to assets/. Usage: python build/build.py"""
+import hashlib
 import sys
 from pathlib import Path
 
@@ -22,10 +23,18 @@ def main() -> None:
     }
     for i, p in enumerate(content.PROJECTS, 1):
         out[f"02-card-{i}.svg"] = cards.render(p)
+    # Content hash in the filename: a changed image gets a new URL, so GitHub's
+    # image cache (which ignores query strings) can never serve a stale copy.
+    files = {}
     for name, svg in out.items():
-        (ASSETS / name).write_text(svg)
-        print(f"{name:20s} {len(svg) / 1024:6.1f} KB")
-    readme.main()
+        h = hashlib.sha256(svg.encode()).hexdigest()[:10]
+        files[name] = f"{name[:-4]}.{h}.svg"
+        (ASSETS / files[name]).write_text(svg)
+        print(f"{files[name]:32s} {len(svg) / 1024:6.1f} KB")
+    for old in ASSETS.glob("*.svg"):
+        if old.name not in files.values():
+            old.unlink()
+    readme.main(files)
     print("README.md")
 
 
