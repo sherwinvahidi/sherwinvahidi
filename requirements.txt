@@ -1,0 +1,6 @@
+fonttools
+brotli
+pymupdf
+pytest
+skia-pathops
+markdown
