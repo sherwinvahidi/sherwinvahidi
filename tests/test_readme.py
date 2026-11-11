@@ -1,3 +1,4 @@
+import hashlib
 import re
 from pathlib import Path
 
@@ -34,7 +35,10 @@ def test_readme_assets_exist_and_have_alt():
     assert len(imgs) == 9
     for tag in imgs:
         src = re.search(r'src="([^"]+)"', tag).group(1)
-        assert (ROOT / src).exists(), src
+        path, _, ver = src.partition("?v=")
+        assert (ROOT / path).exists(), src
+        # a content hash in the URL makes GitHub's image cache fetch new versions
+        assert ver == hashlib.sha256((ROOT / path).read_bytes()).hexdigest()[:10], src
         assert re.search(r'alt="[^"]{8,}"', tag), tag
 
 

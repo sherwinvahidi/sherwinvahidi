@@ -1,4 +1,6 @@
 """Generate README.md from content.py."""
+import hashlib
+import re
 from pathlib import Path
 
 import content as C
@@ -52,5 +54,15 @@ Before grad school I spent four and a half years at Stanford Health Care's Blood
 '''
 
 
+def _versioned(md: str) -> str:
+    """Append ?v=<content hash> to every asset URL so GitHub's image cache
+    (raw.githubusercontent.com, max-age 300 but often longer) can't serve stale art."""
+    def add(m):
+        path = m.group(1)
+        h = hashlib.sha256((ROOT / path).read_bytes()).hexdigest()[:10]
+        return f'src="{path}?v={h}"'
+    return re.sub(r'src="(assets/[^"?]+)"', add, md)
+
+
 def main() -> None:
-    (ROOT / "README.md").write_text(render())
+    (ROOT / "README.md").write_text(_versioned(render()))
